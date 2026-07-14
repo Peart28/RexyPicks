@@ -754,7 +754,7 @@ function getJornadaMatches(jid){const j=appData.jornadas.find(x=>x.id===jid);ret
 function getPickObj(jid,mid){const p=appData.picks.find(x=>x.username===currentUser&&x.jornada===jid&&x.match_id===mid);return p||{pick:null,king:false};}
 function isJornadaLocked(jid){
   const m=getJornadaMatches(jid);if(!m.length)return false;
-  const t=m.map(x=>x.datetime?new Date(x.datetime):null).filter(Boolean);
+  const t=m.map(x=>parseDT(x.datetime)).filter(Boolean);
   if(!t.length)return false;
   return new Date()>=t.reduce((a,b)=>a<b?a:b);
 }
@@ -774,7 +774,12 @@ function calcPts(pick,result){
   if(pick.king)pts+=pick.pick===result?1:-1;
   return pts;
 }
-function fmtDate(dt){if(!dt)return'';return new Date(dt).toLocaleDateString('es-MX',{weekday:'short',month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'});}
+function parseDT(s){
+  if(!s)return null;
+  if(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2})?$/.test(s))return new Date(s+'-06:00');
+  return new Date(s);
+}
+function fmtDate(dt){const d=parseDT(dt);if(!d)return'';return d.toLocaleDateString('es-MX',{weekday:'short',month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'});}
 function resLabel(r){return r==='W'?'Local':r==='T'?'Empate':r==='L'?'Visitante':'';}
 function pickLabel(p){return p==='W'?'Local':p==='T'?'Empate':p==='L'?'Visit':'—';}
 function getDisplayName(u){const x=appData.users.find(y=>y.username===u);return(x&&x.apodo)||u;}
@@ -1021,8 +1026,7 @@ function renderMatrix(){
 
 // ===== PREGUNTAS ESPECIALES =====
 function specialsDeadline(){
-  const d=appData.config.specialDeadline;
-  return d?new Date(d):null;
+  return parseDT(appData.config.specialDeadline);
 }
 
 function renderSpecials(){
@@ -1499,7 +1503,7 @@ async function addMatch(){
   if(home===away){showToast('No pueden ser el mismo equipo');return}
   const j=appData.jornadas.find(x=>x.id===jn);if(!j)return;
   j.matches=j.matches||[];
-  j.matches.push({id:'m'+Date.now(),home,away,datetime:dt||null,result:null});
+  j.matches.push({id:'m'+Date.now(),home,away,datetime:dt?new Date(dt).toISOString():null,result:null});
   try{
     await db.upsertJornada(jn,j.matches);
     document.getElementById('match-date').value='';
@@ -1615,7 +1619,7 @@ async function checkJornadaReminders(){
   const now=new Date();
   for(const j of appData.jornadas){
     const ms=j.matches||[];if(!ms.length)continue;
-    const ts=ms.map(m=>m.datetime?new Date(m.datetime):null).filter(Boolean);
+    const ts=ms.map(m=>parseDT(m.datetime)).filter(Boolean);
     if(!ts.length)continue;
     const first=ts.reduce((a,b)=>a<b?a:b);
     const diffH=(first-now)/3600000;

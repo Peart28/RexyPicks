@@ -103,6 +103,25 @@ async function initSchema() {
   console.log('✓ Base de datos lista');
 }
 
+
+// ---------- FECHAS ----------
+// Las fechas viejas se guardaron sin zona horaria ("2026-07-16T19:00").
+// Node en el servidor corre en UTC, así que las interpretaba 6h antes.
+// México es UTC-6 todo el año (ya no hay horario de verano desde 2022).
+function parseDT(s) {
+  if (!s) return null;
+  if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2})?$/.test(s)) {
+    return new Date(s + '-06:00');   // formato viejo, sin zona
+  }
+  return new Date(s);                 // ISO con Z u offset, correcto
+}
+
+function firstMatchTime(matches) {
+  const times = (matches || []).map(m => parseDT(m.datetime)).filter(Boolean);
+  if (!times.length) return null;
+  return times.reduce((a, b) => a < b ? a : b);
+}
+
 // ---------- AUTH ----------
 async function auth(req, res, next) {
   const token = req.headers['x-auth-token'];
@@ -204,10 +223,9 @@ app.post('/api/pick', auth, wrap(async (req, res) => {
   const jr = await q(`SELECT matches FROM jornadas WHERE id=$1`, [jornada]);
   if (jr.length) {
     const matches = jr[0].matches || [];
-    const times = matches.map(m => m.datetime ? new Date(m.datetime) : null).filter(Boolean);
-    if (times.length) {
-      const first = times.reduce((a, b) => a < b ? a : b);
-      if (new Date() >= first) return res.status(403).json({ error: 'La jornada ya cerró' });
+    const first = firstMatchTime(matches);
+    if (first && new Date() >= first) {
+      return res.status(403).json({ error: 'La jornada ya cerró' });
     }
     const m = matches.find(x => x.id === match_id);
     if (m && m.result) return res.status(403).json({ error: 'Ese partido ya tiene resultado' });
