@@ -122,6 +122,15 @@ function firstMatchTime(matches) {
   return times.reduce((a, b) => a < b ? a : b);
 }
 
+// Un partido está cerrado si ya empezó o si ya tiene resultado.
+// Sin fecha = sigue abierto.
+function matchClosed(m) {
+  if (!m) return false;
+  if (m.result) return true;
+  const t = parseDT(m.datetime);
+  return t ? new Date() >= t : false;
+}
+
 // ---------- AUTH ----------
 async function auth(req, res, next) {
   const token = req.headers['x-auth-token'];
@@ -201,15 +210,25 @@ app.get('/api/data', auth, wrap(async (req, res) => {
   const cfg = {};
   config.forEach(c => cfg[c.key] = c.value);
 
-  // Ocultar respuestas de otros hasta que cierre el plazo
-  const deadline = cfg.specialDeadline ? new Date(cfg.specialDeadline) : null;
+  // Los picks de OTROS solo se revelan partido por partido:
+  // en cuanto ese partido arranca (o ya tiene resultado).
+  const closedMatches = new Set();
+  jornadas.forEach(j => (j.matches || []).forEach(m => {
+    if (matchClosed(m)) closedMatches.add(m.id);
+  }));
+  const visiblePicks = picks.filter(p =>
+    p.username === req.user.username || closedMatches.has(p.match_id)
+  );
+
+  // Ocultar respuestas especiales de otros hasta que cierre el plazo
+  const deadline = cfg.specialDeadline ? parseDT(cfg.specialDeadline) : null;
   const specialsLocked = deadline ? new Date() >= deadline : false;
   const visibleAnswers = specialsLocked
     ? specialAnswers
     : specialAnswers.filter(a => a.username === req.user.username);
 
   res.json({
-    jornadas, config: cfg, picks, users, teams, champions,
+    jornadas, config: cfg, picks: visiblePicks, users, teams, champions,
     specialQuestions, specialAnswers: visibleAnswers, specialsLocked
   });
 }));
@@ -223,12 +242,29 @@ app.post('/api/pick', auth, wrap(async (req, res) => {
   const jr = await q(`SELECT matches FROM jornadas WHERE id=$1`, [jornada]);
   if (jr.length) {
     const matches = jr[0].matches || [];
-    const first = firstMatchTime(matches);
-    if (first && new Date() >= first) {
-      return res.status(403).json({ error: 'La jornada ya cerró' });
-    }
     const m = matches.find(x => x.id === match_id);
-    if (m && m.result) return res.status(403).json({ error: 'Ese partido ya tiene resultado' });
+
+    // Bloqueo POR PARTIDO: solo se cierra este, no toda la jornada
+    if (matchClosed(m)) {
+      return res.status(403).json({ error: 'Ese partido ya empezó' });
+    }
+
+    // El Rey ya usado en un partido CERRADO de esta jornada no se puede mover
+    if (king) {
+      const otros = await q(
+        `SELECT match_id FROM picks
+         WHERE username=$1 AND jornada=$2 AND match_id<>$3 AND king=TRUE`,
+        [username, jornada, match_id]
+      );
+      for (const o of otros) {
+        const om = matches.find(x => x.id === o.match_id);
+        if (matchClosed(om)) {
+          return res.status(403).json({
+            error: 'Ya usaste tu Rey en un partido que ya empezó en esta jornada'
+          });
+        }
+      }
+    }
   }
 
   await q(`INSERT INTO picks (username, jornada, match_id, pick, king)
