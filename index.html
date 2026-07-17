@@ -290,6 +290,20 @@ body{background:var(--bg);color:var(--text);font-family:'DM Sans',sans-serif;min
 .spec-opt.correct{background:rgba(0,180,81,0.18);border-color:var(--green);color:var(--green-glow);font-weight:700}
 .spec-opt.wrong{background:rgba(228,0,43,0.15);border-color:var(--red);color:#ff8a9c}
 .spec-result{margin-top:0.8rem;padding-top:0.8rem;border-top:1px solid var(--border-soft);font-size:0.78rem}
+.spec-ans-title{font-size:0.72rem;color:var(--muted);text-transform:uppercase;letter-spacing:0.6px;font-weight:700;margin:0.9rem 0 0.5rem}
+.spec-ans-group{margin-bottom:0.7rem}
+.spec-ans-opt{display:flex;align-items:center;gap:7px;font-size:0.8rem;font-weight:700;margin-bottom:0.35rem}
+.spec-ans-opt .dot{width:8px;height:8px;border-radius:50%;flex-shrink:0;background:var(--muted)}
+.spec-ans-opt.win .dot{background:var(--gold)}
+.spec-ans-opt.win{color:var(--gold)}
+.spec-ans-count{font-size:0.68rem;color:var(--dim);font-weight:500}
+.spec-ans-names{display:flex;flex-wrap:wrap;gap:5px;padding-left:15px;margin-bottom:0.2rem}
+.spec-name-chip{display:inline-flex;align-items:center;gap:4px;background:var(--surface2);border:1px solid var(--border-soft);border-radius:20px;padding:3px 10px;font-size:0.76rem;color:var(--text)}
+.spec-name-chip.hit{border-color:rgba(240,180,41,0.4);background:rgba(240,180,41,0.08)}
+.spec-name-chip.hit .nm{color:var(--gold)}
+.spec-name-chip.me{border-color:var(--green-dark)}
+.spec-name-chip.me .nm{color:var(--green-glow)}
+.spec-crown{color:var(--gold);font-size:10px}
 .spec-deadline{background:rgba(160,100,220,0.1);border:1px solid #5a3a7a;border-radius:10px;padding:0.65rem 0.85rem;margin:0 1.2rem 0.85rem;font-size:0.78rem;color:#d0a8f0}
 
 /* RESUMEN SALÓN DE LA FAMA */
@@ -1164,20 +1178,6 @@ function renderSpecials(){
     card.className='spec-card';
 
     let others='';
-    if(locked){
-      const rows=appData.specialAnswers
-        .filter(a=>String(a.question_id)===String(qq.id)&&a.username!==currentUser);
-      if(rows.length){
-        others=`<div class="spec-result"><span style="color:var(--muted)">Respuestas: </span>`
-          + rows.map(a=>{
-              const ok=graded?(a.answer===qq.correct_answer):null;
-              const col=ok===null?'var(--muted)':ok?'var(--green-glow)':'#ff8a9c';
-              return `<span style="color:${col}">${esc(getDisplayName(a.username))} → ${esc(a.answer)}</span>`;
-            }).join(' · ')
-          + `</div>`;
-      }
-    }
-
     let resultLine='';
     if(graded){
       const hit=myAns===qq.correct_answer;
@@ -1201,10 +1201,61 @@ function renderSpecials(){
           return `<button class="${cls}" ${dis?'disabled':''} onclick="answerSpecial(${qq.id},'${esc(o).replace(/'/g,"\\'")}')">${esc(o)}</button>`;
         }).join('')}
       </div>
-      ${resultLine}
-      ${others}`;
+      ${resultLine}`;
     list.appendChild(card);
   });
+
+  // Matriz de respuestas de todos (solo cuando ya cerró)
+  if(locked){
+    renderSpecialsMatrix(list);
+  }
+}
+
+function renderSpecialsMatrix(list){
+  const qs=appData.specialQuestions;
+  const users=[currentUser,...appData.users.map(u=>u.username).filter(u=>u!==currentUser)];
+  const ansOf=(u,qid)=>{
+    const a=appData.specialAnswers.find(x=>x.username===u&&String(x.question_id)===String(qid));
+    return a?a.answer:null;
+  };
+
+  const rows2=qs.map(qq=>{
+    const graded=!!qq.correct_answer;
+    const cells=users.map(u=>{
+      const a=appData.specialAnswers.find(x=>x.username===u&&String(x.question_id)===String(qq.id));
+      const ans=a?a.answer:null;
+      if(!ans)return '<td><span class="vp-none">—</span></td>';
+      let cls='vp-pend';
+      if(graded)cls=ans===qq.correct_answer?'vp-hit':'vp-miss';
+      return `<td><span class="vp-pick ${cls}"><span title="${esc(ans)}">${esc(ans)}</span></span></td>`;
+    }).join('');
+    const resCell=graded
+      ? `<td class="vp-res">${esc(qq.correct_answer)}</td>`
+      : '<td><span style="color:var(--amber);font-size:0.7rem">sin calificar</span></td>';
+    return `<tr>
+      <td class="vp-match"><div class="vp-teams"><span class="vp-h">${esc(qq.question)}</span><span class="vp-a">Vale ${qq.points||1} pts</span></div></td>
+      ${resCell}
+      ${cells}
+    </tr>`;
+  }).join('');
+
+  const wrap=document.createElement('div');
+  wrap.style.marginTop='0.5rem';
+  wrap.innerHTML=`
+    <div class="vp-scroll">
+      <table class="vp">
+        <thead>
+          <tr>
+            <th class="vp-match">Preguntas</th>
+            <th class="vp-res">Correcta</th>
+            ${users.map(u=>`<th class="vp-user ${u===currentUser?'me':''}">${u===currentUser?'Tú':esc(getDisplayName(u))}</th>`).join('')}
+          </tr>
+        </thead>
+        <tbody>${rows2}</tbody>
+      </table>
+    </div>
+    <div class="vp-legend"><b>♛</b> no aplica aquí · <b>dorado</b> = acertó · gris = falló · — = no respondió</div>`;
+  list.appendChild(wrap);
 }
 
 async function answerSpecial(qid,answer){
@@ -1490,7 +1541,23 @@ function renderAdminMatches(){
     if(!ms.length){const e=document.createElement('div');e.className='item-row';e.innerHTML='<span style="color:var(--dim);font-size:0.75rem">Sin partidos</span>';l.appendChild(e);return;}
     ms.forEach(m=>{
       const r=document.createElement('div');r.className='item-row';
-      r.innerHTML=`<span class="item-label">${esc(m.home)} vs ${esc(m.away)} <span style="color:var(--dim);font-size:0.7rem">${m.datetime?fmtDate(m.datetime):'sin fecha'}</span></span>
+      // valor para datetime-local: convertir el guardado a hora local México
+      let dtLocal='';
+      if(m.datetime){
+        const d=parseDT(m.datetime);
+        if(d&&!isNaN(d)){
+          const p=n=>String(n).padStart(2,'0');
+          dtLocal=`${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`;
+        }
+      }
+      const cerrado=matchClosed(m);
+      r.innerHTML=`<span class="item-label" style="flex-direction:column;align-items:flex-start;gap:3px">
+          <span>${esc(m.home)} vs ${esc(m.away)} ${cerrado?'<span style="color:var(--amber);font-size:0.65rem">● cerrado</span>':''}</span>
+          <span style="display:flex;gap:5px;align-items:center;flex-wrap:wrap">
+            <input type="datetime-local" id="edit-dt-${m.id}" value="${dtLocal}" style="padding:4px 7px;border-radius:6px;border:1px solid var(--border);background:var(--bg);color:var(--text);font-size:0.74rem;font-family:'DM Sans',sans-serif;outline:none"/>
+            <button class="btn-save-result" onclick="saveMatchTime('${j.id}','${m.id}')">Cambiar hora</button>
+          </span>
+        </span>
         <button class="btn-danger" onclick="deleteMatch('${j.id}','${m.id}')">Eliminar</button>`;
       l.appendChild(r);
     });
@@ -1672,6 +1739,25 @@ async function addMatch(){
     renderAdmin();showToast('Partido agregado ✓');
   }catch(e){showToast('⚠ '+e.message);console.error(e);}
 }
+
+async function saveMatchTime(jn,mid){
+  const val=document.getElementById('edit-dt-'+mid).value;
+  const j=appData.jornadas.find(x=>x.id===jn);if(!j)return;
+  const m=(j.matches||[]).find(x=>x.id===mid);if(!m)return;
+  // Conserva el mismo id -> los picks NO se pierden
+  const nuevo=val?new Date(val).toISOString():null;
+  const antes=m.datetime;
+  m.datetime=nuevo;
+  try{
+    await db.upsertJornada(jn,j.matches);
+    await loadAppData();renderAdmin();
+    const reabrio=antes&&nuevo&&matchClosedAt(antes)&&!matchClosedAt(nuevo);
+    showToast(reabrio?'Hora cambiada ✓ · el partido se reabrió para picks':'Hora cambiada ✓');
+  }catch(e){m.datetime=antes;showToast('⚠ '+e.message);console.error(e);}
+}
+
+// versión de matchClosed que evalúa una fecha suelta
+function matchClosedAt(dt){const t=parseDT(dt);return t?new Date()>=t:false;}
 
 async function deleteMatch(jn,id){
   if(!confirm('¿Eliminar este partido?'))return;
